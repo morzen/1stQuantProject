@@ -48,6 +48,7 @@ for filename in files_list:
         path = file_path + filename
         with open(path) as f:
             lines = f.read().splitlines()
+            Title_table_list = []
             starts = []
             ends = []
             switch = 0
@@ -55,6 +56,21 @@ for filename in files_list:
                 if line.lstrip().startswith(","):
                     starts.append(i)
                     switch = 1
+
+                    for title_look_up_idx in range(i - 1, -1, -1):
+                        title_look_up = lines[title_look_up_idx]
+                        if title_look_up == "":
+                            title_start_idx = title_look_up_idx + 1
+
+                            title_end_idx = i-1
+
+                            title = " ".join([l.strip() for l in lines[title_start_idx:title_end_idx + 1]])
+                            Title_table_list.append(title)
+
+                            break
+                            
+
+
                 elif switch == 1 and line.lstrip()== "":
                     ends.append(i)
                     switch = 0
@@ -74,7 +90,7 @@ for filename in files_list:
                         dataTables[filename] = df
                     else:
                         df = pd.read_csv(io.StringIO("\n".join(lines[starts[start_idx]:ends[start_idx]])))
-                        dataTables[filename+"_"+str(No_Table)] = df
+                        dataTables[filename+"_"+str(Title_table_list[start_idx])] = df
                         No_Table = No_Table + 1
 
             else:
