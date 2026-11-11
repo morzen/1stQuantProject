@@ -3,10 +3,25 @@ import csv
 import os
 import pathlib
 import io
+import re
 import pandas as pd
 from pathlib import Path
 from os import listdir
 from os.path import isfile, join
+
+
+
+def Table_Title_sanitisation_and_uniformisation(Title_string):
+    title = Title_string.strip()
+    title = title.lower()
+    title = re.sub(r"[^a-z0-9]+", "_", title)
+    title = title.strip("_")
+
+    return title
+
+
+
+
 
 #unpacking phase.
 
@@ -33,8 +48,8 @@ print("files extracted \n")
 
 
 
-#cleaning phase.
-print("====Cleanning phase =====\n")
+#early cleanning and storing phase.
+print("====early cleanning and storing phase =====\n")
 
 file_path = "./data/2_raw/"
 files_list = [f for f in listdir(file_path) if isfile(join(file_path, f))]
@@ -52,11 +67,15 @@ for filename in files_list:
             starts = []
             ends = []
             switch = 0
+            #this for loops find beginning of table line "," and the end first "" after ","
+            # it select it as a table and stores the lines
             for i, line in enumerate(lines):
                 if line.lstrip().startswith(","):
                     starts.append(i)
                     switch = 1
 
+                    #this for helps look for the title which is right above table start
+                    #goes back up until line == "" and that is concidered the title
                     for title_look_up_idx in range(i - 1, -1, -1):
                         title_look_up = lines[title_look_up_idx]
                         if title_look_up == "":
@@ -65,6 +84,7 @@ for filename in files_list:
                             title_end_idx = i-1
 
                             title = " ".join([l.strip() for l in lines[title_start_idx:title_end_idx + 1]])
+                            title = Table_Title_sanitisation_and_uniformisation(title)
                             Title_table_list.append(title)
 
                             break
@@ -81,9 +101,9 @@ for filename in files_list:
                     pass
 
 
-
+            #the stored line and titles are used to give panda the tables and stores them in a dictionnary
             if len(starts) == len(ends):
-                No_Table = 1
+                # No_Table = 1
                 for start_idx, x in enumerate(starts):
                     if len(starts) == 1:
                         df = pd.read_csv(io.StringIO("\n".join(lines[starts[start_idx]:ends[start_idx]])))
@@ -91,11 +111,10 @@ for filename in files_list:
                     else:
                         df = pd.read_csv(io.StringIO("\n".join(lines[starts[start_idx]:ends[start_idx]])))
                         dataTables[filename+"_"+str(Title_table_list[start_idx])] = df
-                        No_Table = No_Table + 1
+                        # No_Table = No_Table + 1
 
             else:
-                print("error in table index starts ends index list mismatch, list not of same length, not possible")
-                break
+                raise ValueError("error in table index starts ends index list mismatch, list not of same length, not possible")
                 
             
 
@@ -109,3 +128,19 @@ for filename in files_list:
 print(len(dataTables))
 for key, df in dataTables.items():
     print(key, df.shape)
+
+
+# cleanning phase.
+print("==== cleanning phase =====\n")
+
+
+for Table_key, Df_table in dataTables:
+    #remove spaces from column strings
+    Column_name_list = Df_table.columns.tolist()
+    Sanatized_Column_list_name = []
+    for item in Column_name_list:
+        sanatized_item = item.replace(" ", "")
+        Sanatized_Column_list_name.append(sanatized_item)
+
+
+    df.rename(columns=Sanatized_Column_list_name, inplace=True)
