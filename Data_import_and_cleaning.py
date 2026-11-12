@@ -104,15 +104,19 @@ for filename in files_list:
 
             #the stored line and titles are used to give panda the tables and stores them in a dictionnary
             if len(starts) == len(ends):
-                # No_Table = 1
+                No_Table = 1
                 for start_idx, x in enumerate(starts):
                     if len(starts) == 1:
                         df = pd.read_csv(io.StringIO("\n".join(lines[starts[start_idx]:ends[start_idx]])))
                         dataTables[filename] = df
                     else:
                         df = pd.read_csv(io.StringIO("\n".join(lines[starts[start_idx]:ends[start_idx]])))
-                        dataTables[filename+"_"+str(Title_table_list[start_idx])] = df
-                        # No_Table = No_Table + 1
+                        if Title_table_list[start_idx] != "":
+                            dataTables[filename+"_"+str(Title_table_list[start_idx])] = df
+                        else:
+                            dataTables[filename+"_"+"Untitled_table_No_"+str(No_Table)] = df
+                    
+                    No_Table = No_Table + 1
 
             else:
                 raise ValueError("error in table index starts ends index list mismatch, list not of same length, not possible")
@@ -185,7 +189,7 @@ for Table_key, Df_table in dataTables.items():
     #check that not 2 dates are the same, and the monotonixc increasing check that they either are 
     # (the same date, which in this case in not possible) or go forward in time    
     assert Df_table["date"].is_unique and Df_table["date"].is_monotonic_increasing, f"{Table_key}: dates not unique or not in order"
-    print(Table_key, Df_table["date"].iloc[0], Df_table["date"].iloc[-1])
+    print("date heck: "+Table_key, Df_table["date"].iloc[0], Df_table["date"].iloc[-1])
 
     ###
     ###removing -99.99 or -999 which represent missin gvalues and changing them to NaN###
@@ -204,7 +208,7 @@ for Table_key, Df_table in dataTables.items():
     nan_after = Df_table[number_columns].isna().sum().sum()
     assert nan_after == codes_before + nan_before, f"{Table_key}: NaN count doesn't match the codes"
     assert not (Df_table[number_columns] <= -99).any().any(), f"{Table_key}: a code is still there"
-    print(Table_key, codes_before, nan_after)
+    print("NaN check: "+Table_key, codes_before, nan_after)
 
 
 
@@ -216,4 +220,28 @@ for Table_key, Df_table in dataTables.items():
         Df_table[number_columns] = Df_table[number_columns] / 100
 
         assert not (Df_table[number_columns] <= -1).any().any(), f"{Table_key}: a return of -100% or worse"
-        print(Table_key, Df_table[number_columns].min().min(), Df_table[number_columns].max().max())
+        print("Value Check: "+Table_key, Df_table[number_columns].min().min(), Df_table[number_columns].max().max())
+
+    
+    print("===\n")
+
+
+# saving phase phase.
+print("==== Saving phase =====\n")
+
+if os.path.isdir("./data/3_cleaned") == False:
+    os.mkdir("./data/3_cleaned")
+    print("folder created")
+else:
+    print("folder already exist")
+    pass
+
+
+
+for Table_key, Df_table in dataTables.items():
+
+    Table_key = Table_key.replace(".csv", "")
+
+    
+    Df_table.to_parquet("./data/3_cleaned/" + Table_key + ".parquet", index=False)
+    pd.testing.assert_frame_equal(pd.read_parquet("./data/3_cleaned/" + Table_key + ".parquet"), Df_table)
