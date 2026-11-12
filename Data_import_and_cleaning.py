@@ -134,13 +134,51 @@ for key, df in dataTables.items():
 print("==== cleanning phase =====\n")
 
 
-for Table_key, Df_table in dataTables:
+for Table_key, Df_table in dataTables.items():
+    #Sanitizing tables column names
     #remove spaces from column strings
     Column_name_list = Df_table.columns.tolist()
+    Column_name_list[0] = "date"
     Sanatized_Column_list_name = []
     for item in Column_name_list:
-        sanatized_item = item.replace(" ", "")
+        item = item.strip()
+        sanatized_item = item.replace(" ", "_")
         Sanatized_Column_list_name.append(sanatized_item)
 
 
-    df.rename(columns=Sanatized_Column_list_name, inplace=True)
+    Df_table.columns = Sanatized_Column_list_name
+
+
+    #standardizing column date format
+    #int change to str
+    column_date_text_string = Df_table["date"].astype(str)#select date column 
+    column_dates_str_unique_length = column_date_text_string.str.len().unique()
+
+    #check if date through the column have uniformed format through length
+    assert len(column_dates_str_unique_length) == 1, f"{Table_key}: dates have different lengths {column_dates_str_unique_length}"
+    #we work with 3 formats length 4 is year 6 year and month 8 is year month day 
+    assert column_dates_str_unique_length[0] in (4, 6, 8), f"{Table_key}: unexpected date length {column_dates_str_unique_length[0]}"
+
+    #by now there should be only 1 formart hence selecting the first item in list
+    format_date_length_single = column_dates_str_unique_length[0]
+
+    if format_date_length_single == 4:
+        #the first part help panda recognise the text format and then change it to date
+        #                                                                         # this last part is an offset that put the date either 
+        #                                                                         #at the end of the year
+        Df_table["date"] = pd.to_datetime(column_date_text_string, format="%Y") + pd.offsets.YearEnd(0)
+
+    elif format_date_length_single == 6:                                            #or at the end of the month
+        Df_table["date"] = pd.to_datetime(column_date_text_string, format="%Y%m") + pd.offsets.MonthEnd(0)
+
+    elif format_date_length_single == 8:
+        Df_table["date"] = pd.to_datetime(column_date_text_string, format="%Y%m%d")
+
+    else:
+        raise ValueError("Issues with date format length, error this else should never happen")
+    #the offset is placed at end of year or month because only then is the rturn known at the end of a given date
+
+    #check that not 2 dates are the same, and the monotonixc increasing check that they either are 
+    # (the same date, which in this case in not possible) or go forward in time    
+    assert Df_table["date"].is_unique and Df_table["date"].is_monotonic_increasing, f"{Table_key}: dates not unique or not in order"
+    print(Table_key, Df_table["date"].iloc[0], Df_table["date"].iloc[-1])
