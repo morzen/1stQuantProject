@@ -126,7 +126,7 @@ for filename in files_list:
 
     else:
         print(filename)
-        print("no file name in file list _ else not supposed to happen investigate import and text clean 1st clean iterator")
+        print("files that are not csv")
         pass
 
 
@@ -244,4 +244,130 @@ for Table_key, Df_table in dataTables.items():
 
     
     Df_table.to_parquet("./data/3_cleaned/" + Table_key + ".parquet", index=False)
+    #check the export correspond to the table in memory 
     pd.testing.assert_frame_equal(pd.read_parquet("./data/3_cleaned/" + Table_key + ".parquet"), Df_table)
+
+
+
+
+# dealing with Siccodes49.txt ^^'
+print("==== Siccodes49 phase =====\n")
+
+# Siccodes49.txt is not a csv: each industry is a title line "1 Agric  Agriculture"
+# followed by its SIC code ranges "0100-0199 Agricultural production - crops",
+# and a blank line closes the industry. utf-8 because of an en dash and a curly apostrophe
+with open(file_path + "Siccodes49.txt", encoding="utf-8") as f:
+    lines = f.read().splitlines()
+
+Siccodes_tables = {}
+Siccodes_title_list = []
+starts = []
+ends = []
+switch = 0
+
+# this for loop finds the title line of each industry (start) and the first blank line after it (end)
+for i, line in enumerate(lines):
+    words = line.split()
+
+    # a title line starts with a number: its first word is only digits ("1", "49")
+    # the range lines also start with a number once the spaces are gone,
+    # but their first word has a "-" in it ("0100-0199") so isdigit() is False for them
+    if len(words) > 0 and words[0].isdigit():
+        starts.append(i)
+        switch = 1
+
+        # the title is everything after the number, split() then " ".join() turns every run of spaces into 1 space
+        title = " ".join(words[1:])
+        Siccodes_title_list.append(title)
+
+    elif switch == 1 and line.strip() == "":
+        ends.append(i)
+        switch = 0
+    elif switch == 1 and i == len(lines)-1:
+        # the last industry has no blank line after it, the file just ends
+        ends.append(len(lines))
+        switch = 0
+    else:
+        pass
+
+
+# the starts and ends are used to build one table per industry, stored in a dictionary with the title as key
+# columns: on a range line only the first space is a column break, everything after it is the description
+# (so " - " stays inside the description), and the "-" without spaces in "0100-0199" splits low and high codes
+if len(starts) == len(ends):
+    for table_idx, start in enumerate(starts):
+        rows = []
+        for line in lines[start + 1:ends[table_idx]]:
+            sic_range, sic_description = line.split(maxsplit=1)
+            sic_low, sic_high = sic_range.split("-")
+            # same space rule as the titles (2 descriptions have a double space, 1 ends with a tab)
+            sic_description = " ".join(sic_description.split())
+            rows.append([int(sic_low), int(sic_high), sic_description])
+
+        Siccodes_tables[Siccodes_title_list[table_idx]] = pd.DataFrame(rows, columns=["sic_low", "sic_high", "sic_description"])
+
+else:
+    raise ValueError("error in Siccodes starts ends index list mismatch, list not of same length, not possible")
+
+
+###
+###checks
+###
+# number of ranges in each industry table
+Ranges_per_industry = pd.Series({title: len(df) for title, df in Siccodes_tables.items()})
+Non_blank_lines = len([line for line in lines if line.strip() != ""])
+
+# two industries with the same title would overwrite each other in the dictionary
+assert len(Siccodes_tables) == len(starts), "Siccodes: two industries got the same title"
+# every non blank line was used exactly once, either as a title or as a row
+assert len(Siccodes_tables) + Ranges_per_industry.sum() == Non_blank_lines, "Siccodes: some lines were not read"
+# a range never goes backwards
+for title, df in Siccodes_tables.items():
+    assert (df["sic_low"] <= df["sic_high"]).all(), f"{title}: a range goes backwards"
+
+# the first word of each title is the short name, they must be the industry columns
+# of every 49 industry table, in the same order
+Short_names = [title.split()[0] for title in Siccodes_tables]
+Tables_checked = 0
+for Table_key, Df_table in dataTables.items():
+    if Table_key.startswith("49_Industry_Portfolios"):
+        assert Df_table.columns[1:].tolist() == Short_names, f"{Table_key}: industry columns don't match the Siccodes short names"
+        Tables_checked = Tables_checked + 1
+
+print("Siccodes check:", len(Siccodes_tables), "industries,", Ranges_per_industry.sum(), "SIC ranges")
+print("fewest ranges:", Ranges_per_industry.idxmin(), Ranges_per_industry.min())
+print("most ranges:", Ranges_per_industry.idxmax(), Ranges_per_industry.max())
+print("short names match the industry columns of", Tables_checked, "tables")
+
+
+
+###
+###saving Siccodes49 as one table
+###
+# the 49 industry tables are stacked into one table, with the industry number, short name and long name as columns
+Siccodes_stack_list = []
+for table_idx, title in enumerate(Siccodes_title_list):
+    # the industry number is the first word of the title line in the file (starts holds that line's index)
+    industry_number = int(lines[starts[table_idx]].split()[0])
+    # the short name is the first word of the title, the long name is the rest
+    short_name, long_name = title.split(maxsplit=1)
+
+    # copy so the tables in Siccodes_tables stay as they are
+    # insert(position, column name, value) adds a column at that position, same value on every row
+    Industry_df = Siccodes_tables[title].copy()
+    Industry_df.insert(0, "industry_number", industry_number)
+    Industry_df.insert(1, "short_name", short_name)
+    Industry_df.insert(2, "long_name", long_name)
+    Siccodes_stack_list.append(Industry_df)
+
+# ignore_index=True numbers the rows 0 to 597, without it every industry would restart at 0
+Siccodes_df = pd.concat(Siccodes_stack_list, ignore_index=True)
+
+# no empty cell after stacking, and the industry numbers read in the file run from 1 to 49 in order
+assert not Siccodes_df.isna().any().any(), "Siccodes: empty cells after stacking"
+assert Siccodes_df["industry_number"].unique().tolist() == list(range(1, len(Siccodes_tables) + 1)), "Siccodes: industry numbers are not 1 to 49 in order"
+
+Siccodes_df.to_parquet("./data/3_cleaned/Siccodes49.parquet", index=False)
+#check the export correspond to the table in memory
+pd.testing.assert_frame_equal(pd.read_parquet("./data/3_cleaned/Siccodes49.parquet"), Siccodes_df)
+print("Siccodes49 saved:", Siccodes_df.shape)
