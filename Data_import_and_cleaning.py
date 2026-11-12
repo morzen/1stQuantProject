@@ -5,6 +5,7 @@ import pathlib
 import io
 import re
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from os import listdir
 from os.path import isfile, join
@@ -135,7 +136,9 @@ print("==== cleanning phase =====\n")
 
 
 for Table_key, Df_table in dataTables.items():
-    #Sanitizing tables column names
+    ###
+    ###Sanitizing tables column names
+    ###
     #remove spaces from column strings
     Column_name_list = Df_table.columns.tolist()
     Column_name_list[0] = "date"
@@ -148,8 +151,9 @@ for Table_key, Df_table in dataTables.items():
 
     Df_table.columns = Sanatized_Column_list_name
 
-
-    #standardizing column date format
+    ###
+    ###standardizing column date format###
+    ###
     #int change to str
     column_date_text_string = Df_table["date"].astype(str)#select date column 
     column_dates_str_unique_length = column_date_text_string.str.len().unique()
@@ -182,3 +186,34 @@ for Table_key, Df_table in dataTables.items():
     # (the same date, which in this case in not possible) or go forward in time    
     assert Df_table["date"].is_unique and Df_table["date"].is_monotonic_increasing, f"{Table_key}: dates not unique or not in order"
     print(Table_key, Df_table["date"].iloc[0], Df_table["date"].iloc[-1])
+
+    ###
+    ###removing -99.99 or -999 which represent missin gvalues and changing them to NaN###
+    ###
+    # the names: every column except "date"
+    number_columns = Df_table.columns[1:]
+    # the values under those names
+    numbers = Df_table[number_columns]
+
+    codes_before = numbers.isin([-99.99, -999]).sum().sum()
+    nan_before = numbers.isna().sum().sum()
+
+    # assigning back changes the table
+    Df_table[number_columns] = numbers.replace([-99.99, -999], np.nan)
+
+    nan_after = Df_table[number_columns].isna().sum().sum()
+    assert nan_after == codes_before + nan_before, f"{Table_key}: NaN count doesn't match the codes"
+    assert not (Df_table[number_columns] <= -99).any().any(), f"{Table_key}: a code is still there"
+    print(Table_key, codes_before, nan_after)
+
+
+
+    ###
+    ###standardizing values in percentage except firm count and firm size which stay in million of dollars###
+    ###
+    # put verything out of percentage that is a return ?
+    if "returns" in Table_key or Table_key.startswith("F-F_"):
+        Df_table[number_columns] = Df_table[number_columns] / 100
+
+        assert not (Df_table[number_columns] <= -1).any().any(), f"{Table_key}: a return of -100% or worse"
+        print(Table_key, Df_table[number_columns].min().min(), Df_table[number_columns].max().max())
